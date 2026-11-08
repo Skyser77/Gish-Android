@@ -1,3 +1,4 @@
+
 name: Build Gish APK
 
 on:
@@ -58,6 +59,23 @@ jobs:
           sed -i 's/VERSION_8/VERSION_1_8/g' app/build.gradle
 
           echo "android.useAndroidX=true" >> gradle.properties
+
+          mkdir -p app/src/main/res/mipmap-anydpi
+
+          cat > app/src/main/res/mipmap-anydpi/ic_launcher.xml <<'EOF'
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="48dp"
+              android:height="48dp"
+              android:viewportWidth="100"
+              android:viewportHeight="100">
+              <path android:fillColor="#173B2A"
+                  android:pathData="M0,0h100v100h-100z"/>
+              <path android:fillColor="#FFFFFF"
+                  android:pathData="M50,15 A35,35 0,1 0,85 50 L85,43 L53,43 L53,56 L70,56 A22,22 0,1 1,70 35 L80,26 A35,35 0,0 0,50 15 Z"/>
+          </vector>
+          EOF
+
+          cp app/src/main/res/mipmap-anydpi/ic_launcher.xml app/src/main/res/mipmap-anydpi/ic_launcher_round.xml
 
           if [ -f gradlew ]; then
             chmod +x gradlew
