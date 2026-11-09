@@ -29,100 +29,88 @@ jobs:
         with:
           packages: platform-tools
 
-      - name: Download Vineflower
+      - name: Download Procyon decompiler
         run: |
-          curl -fL \
-            https://repo1.maven.org/maven2/org/vineflower/vineflower/1.12.0/vineflower-1.12.0.jar \
-            -o vineflower.jar
+          curl --retry 5 --retry-all-errors --retry-delay 3 -fL \
+            https://github.com/mstrobel/procyon/releases/download/v0.6.0/procyon-decompiler-0.6.0.jar \
+            -o procyon.jar
+          test -s procyon.jar
 
-      - name: Decompile original Gish
+      - name: Decompile original Gish with Procyon
         run: |
           test -f Gish_V.1.3.3.jar
-          rm -rf porting/vineflower-source
-          mkdir -p porting/vineflower-source
+          rm -rf porting/procyon-source
+          mkdir -p porting/procyon-source
 
-          java -jar vineflower.jar \
-            --folder \
-            --skip-extra-files=1 \
-            --rename-members=1 \
-            Gish_V.1.3.3.jar \
-            porting/vineflower-source
+          java -jar procyon.jar -jar Gish_V.1.3.3.jar -o porting/procyon-source
 
-          COUNT=$(find porting/vineflower-source -name '*.java' | wc -l)
-          echo "Java files: $COUNT"
+          COUNT=$(find porting/procyon-source -name '*.java' | wc -l)
+          echo "Procyon Java files: $COUNT"
           test "$COUNT" -gt 0
 
-          if grep -R -n '\*\* GOTO' porting/vineflower-source --include='*.java'; then
-            echo "Invalid decompiler output detected"
-            exit 1
-          fi
+          find porting/procyon-source -name '*.java' | sort | head -30
 
       - name: Clone J2ME Loader
         run: |
-          git clone --depth 1 \
-            https://github.com/nikita36078/J2ME-Loader.git runtime
+          git clone --depth 1 https://github.com/nikita36078/J2ME-Loader.git runtime
 
       - name: Prepare Gish MIDlet
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import shutil
           import re
+          import shutil
           import sys
 
           root = Path.cwd()
-          source = root / "porting/vineflower-source"
+          source = root / "porting/procyon-source"
           original = root / "porting/generated/original"
           target = root / "runtime/app/src/midlet"
-          java_target = target / "java/com/hardwire/blob"
+          java_root = target / "java"
           resources_target = target / "resources"
 
-          if not source.is_dir():
-              sys.exit("ERROR: Decompiled sources not found")
-
-          if not original.is_dir():
-              sys.exit("ERROR: Original game resources not found")
+          if not source.is_dir() or not original.is_dir():
+              sys.exit("Missing Procyon source or extracted original resources")
 
           java_files = sorted(source.rglob("*.java"))
 
           if not java_files:
-              sys.exit("ERROR: No Java files found")
+              sys.exit("Procyon produced no Java source files")
 
-          java_target.mkdir(parents=True, exist_ok=True)
+          java_root.mkdir(parents=True, exist_ok=True)
           resources_target.mkdir(parents=True, exist_ok=True)
 
-          copied = 0
-          used_names = set()
+          seen = set()
 
           for file in java_files:
-              content = file.read_text(
+              code = file.read_text(
                   encoding="utf-8",
                   errors="replace"
               )
 
-              if not re.search(r'(?m)^\s*package\s+', content):
-                  content = (
-                      "package com.hardwire.blob;\n\n"
-                      + content
-                  )
-
-              destination = java_target / file.name
-
-              if destination.name in used_names:
-                  sys.exit(
-                      "Duplicate Java filename: "
-                      + destination.name
-                  )
-
-              used_names.add(destination.name)
-
-              destination.write_text(
-                  content,
-                  encoding="utf-8"
+              match = re.search(
+                  r'(?m)^\s*package\s+([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*;',
+                  code
               )
 
-              copied += 1
+              if match:
+                  package = match.group(1)
+                  dest_dir = java_root.joinpath(*package.split("."))
+              else:
+                  package = "com.hardwire.blob"
+                  code = "package com.hardwire.blob;\n\n" + code
+                  dest_dir = java_root / "com" / "hardwire" / "blob"
+
+              dest_dir.mkdir(parents=True, exist_ok=True)
+              dest = dest_dir / file.name
+              key = str(dest.relative_to(java_root))
+
+              if key in seen or dest.exists():
+                  sys.exit("Duplicate Java source destination: " + key)
+
+              seen.add(key)
+              dest.write_text(code, encoding="utf-8")
 
           shutil.copytree(
               original,
@@ -130,7 +118,7 @@ jobs:
               dirs_exist_ok=True
           )
 
-          manifest_dir = resources_target / "META-INF"
+          manifest_dir = resources_target / "MIDLET-META-INF"
           manifest_dir.mkdir(parents=True, exist_ok=True)
 
           manifest = """Manifest-Version: 1.0
@@ -171,28 +159,29 @@ jobs:
               encoding="utf-8"
           )
 
-          print("Prepared Java files:", copied)
+          print("Prepared Java files:", len(seen))
           print("Original resources copied")
-          print("MIDlet manifest created")
-          print("Android manifest created")
+          print("MIDlet manifest installed at the correct path")
           PY
 
       - name: Build APK
         working-directory: runtime
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon --stacktrace \
-            :app:assembleMidletDebug
+          ./gradlew --no-daemon --stacktrace :app:assembleMidletDebug
 
-      - name: Upload APK and diagnostic logs
+      - name: Upload APK, decompiled source and diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Gish-Android-Build
+          name: Gish-Android-Procyon-Diagnostics
           path: |
             runtime/app/build/outputs/apk/**/*.apk
             runtime/app/build/reports/**
             runtime/app/build/outputs/logs/**
+            porting/procyon-source/**
+            runtime/app/src/midlet/java/**
+            runtime/app/src/midlet/resources/MIDLET-META-INF/MANIFEST.MF
           if-no-files-found: warn
           retention-days: 14
 
