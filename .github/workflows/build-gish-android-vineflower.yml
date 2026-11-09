@@ -1,3 +1,4 @@
+
 name: Build Gish Android APK
 
 on:
@@ -8,7 +9,7 @@ permissions:
 
 jobs:
   build:
-    name: Build original Gish for Android
+    name: Build Gish Android APK
     runs-on: ubuntu-latest
 
     steps:
@@ -28,32 +29,40 @@ jobs:
         with:
           packages: platform-tools
 
-      - name: Download Vineflower decompiler
+      - name: Download Vineflower
         run: |
           curl -fL \
             https://repo1.maven.org/maven2/org/vineflower/vineflower/1.12.0/vineflower-1.12.0.jar \
             -o vineflower.jar
 
-      - name: Decompile original Gish JAR
+      - name: Decompile original Gish
         run: |
           test -f Gish_V.1.3.3.jar
           rm -rf porting/vineflower-source
           mkdir -p porting/vineflower-source
-          java -jar vineflower.jar --folder --skip-extra-files=1 \
-            Gish_V.1.3.3.jar porting/vineflower-source
-          echo "Decompiled Java files:"
-          find porting/vineflower-source -type f -name '*.java' | wc -l
-          test "$(find porting/vineflower-source -type f -name '*.java' | wc -l)" -gt 0
+
+          java -jar vineflower.jar \
+            --folder \
+            --skip-extra-files=1 \
+            --rename-members=1 \
+            Gish_V.1.3.3.jar \
+            porting/vineflower-source
+
+          COUNT=$(find porting/vineflower-source -name '*.java' | wc -l)
+          echo "Java files: $COUNT"
+          test "$COUNT" -gt 0
+
           if grep -R -n '\*\* GOTO' porting/vineflower-source --include='*.java'; then
-            echo "ERROR: Decompiler produced invalid GOTO pseudo-code"
+            echo "Invalid decompiler output detected"
             exit 1
           fi
 
-      - name: Clone J2ME Loader runtime
+      - name: Clone J2ME Loader
         run: |
-          git clone --depth 1 https://github.com/nikita36078/J2ME-Loader.git runtime
+          git clone --depth 1 \
+            https://github.com/nikita36078/J2ME-Loader.git runtime
 
-      - name: Prepare original Gish sources and resources
+      - name: Prepare Gish MIDlet
         shell: bash
         run: |
           python3 - <<'PY'
@@ -69,21 +78,22 @@ jobs:
           java_target = target / "java/com/hardwire/blob"
           resources_target = target / "resources"
 
-          if not source.exists():
-              sys.exit("ERROR: Vineflower source directory not found")
+          if not source.is_dir():
+              sys.exit("ERROR: Decompiled sources not found")
 
-          if not original.exists():
-              sys.exit("ERROR: Original game resources directory not found")
+          if not original.is_dir():
+              sys.exit("ERROR: Original game resources not found")
 
-          java_files = list(source.rglob("*.java"))
+          java_files = sorted(source.rglob("*.java"))
 
           if not java_files:
-              sys.exit("ERROR: No Java source files found")
+              sys.exit("ERROR: No Java files found")
 
           java_target.mkdir(parents=True, exist_ok=True)
           resources_target.mkdir(parents=True, exist_ok=True)
 
           copied = 0
+          used_names = set()
 
           for file in java_files:
               content = file.read_text(
@@ -92,10 +102,26 @@ jobs:
               )
 
               if not re.search(r'(?m)^\s*package\s+', content):
-                  content = "package com.hardwire.blob;\n\n" + content
+                  content = (
+                      "package com.hardwire.blob;\n\n"
+                      + content
+                  )
 
               destination = java_target / file.name
-              destination.write_text(content, encoding="utf-8")
+
+              if destination.name in used_names:
+                  sys.exit(
+                      "Duplicate Java filename: "
+                      + destination.name
+                  )
+
+              used_names.add(destination.name)
+
+              destination.write_text(
+                  content,
+                  encoding="utf-8"
+              )
+
               copied += 1
 
           shutil.copytree(
@@ -104,13 +130,13 @@ jobs:
               dirs_exist_ok=True
           )
 
-          manifest_dir = resources_target / "MIDLET-META-INF"
+          manifest_dir = resources_target / "META-INF"
           manifest_dir.mkdir(parents=True, exist_ok=True)
 
           manifest = """Manifest-Version: 1.0
           MIDlet-1: Gish, , com.hardwire.blob.Main
           MIDlet-Name: Gish
-          MIDlet-Vendor: Original game source port
+          MIDlet-Vendor: Gish Android Port
           MIDlet-Version: 1.3.3
           MicroEdition-Configuration: CLDC-1.1
           MicroEdition-Profile: MIDP-2.0
@@ -145,26 +171,28 @@ jobs:
               encoding="utf-8"
           )
 
-          print(f"Java files copied: {copied}")
-          print("Original game resources copied")
+          print("Prepared Java files:", copied)
+          print("Original resources copied")
           print("MIDlet manifest created")
-          print("Android launcher manifest created")
+          print("Android manifest created")
           PY
 
-      - name: Build Gish APK
+      - name: Build APK
         working-directory: runtime
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon --stacktrace :app:assembleMidletDebug
+          ./gradlew --no-daemon --stacktrace \
+            :app:assembleMidletDebug
 
-      - name: Upload APK and build reports
+      - name: Upload APK and diagnostic logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Gish-Android-APK-and-build-logs
+          name: Gish-Android-Build
           path: |
             runtime/app/build/outputs/apk/**/*.apk
             runtime/app/build/reports/**
             runtime/app/build/outputs/logs/**
           if-no-files-found: warn
           retention-days: 14
+
