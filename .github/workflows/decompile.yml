@@ -1,0 +1,58 @@
+
+name: Decompile Original Gish JAR
+
+on:
+  workflow_dispatch:
+
+jobs:
+  decompile:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Find original JAR
+        run: |
+          mkdir -p result/src
+          find . -maxdepth 1 -type f -iname '*.jar' -print
+          JAR=$(find . -maxdepth 1 -type f -iname '*.jar' | head -n 1)
+          if [ -z "$JAR" ]; then
+            echo "ERROR: Original JAR not found in repository root"
+            exit 1
+          fi
+          echo "JAR=$JAR" >> "$GITHUB_ENV"
+          echo "Found: $JAR"
+          unzip -l "$JAR" > result/jar-inventory.txt
+
+      - name: Download CFR
+        run: |
+          curl -L \
+            https://www.benf.org/other/cfr/cfr-0.152.jar \
+            -o "$RUNNER_TEMP/cfr.jar"
+
+      - name: Decompile game
+        run: |
+          set +e
+          java -jar "$RUNNER_TEMP/cfr.jar" \
+            "$JAR" \
+            --outputdir result/src \
+            --silent true \
+            > result/cfr.log 2>&1
+          echo "CFR exit code: $?" >> result/cfr.log
+          echo "Java files recovered:"
+          find result/src -type f -name '*.java' | wc -l
+
+      - name: Upload decompilation results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Gish-Decompiled-Source
+          path: result/
+          if-no-files-found: warn
