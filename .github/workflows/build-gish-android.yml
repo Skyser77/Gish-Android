@@ -26,6 +26,8 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
       - name: Clone J2ME Loader runtime
         run: |
@@ -64,7 +66,10 @@ jobs:
           copied = 0
 
           for file in java_files:
-              content = file.read_text(encoding="utf-8", errors="replace")
+              content = file.read_text(
+                  encoding="utf-8",
+                  errors="replace"
+              )
 
               if not re.search(r'(?m)^\s*package\s+', content):
                   content = "package com.hardwire.blob;\n\n" + content
@@ -121,7 +126,7 @@ jobs:
           )
 
           print(f"Java files copied: {copied}")
-          print(f"Original resources copied from: {original}")
+          print("Original game resources copied")
           print("MIDlet manifest created")
           print("Android launcher manifest created")
           PY
