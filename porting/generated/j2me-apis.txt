@@ -1,0 +1,17 @@
+javax.microedition.io.Connection
+javax.microedition.io.Connector
+javax.microedition.io.HttpConnection
+javax.microedition.io.StreamConnection
+javax.microedition.lcdui.Canvas
+javax.microedition.lcdui.Display
+javax.microedition.lcdui.Displayable
+javax.microedition.lcdui.Graphics
+javax.microedition.lcdui.Image
+javax.microedition.media.Manager
+javax.microedition.media.Player
+javax.microedition.media.control.VolumeControl
+javax.microedition.midlet.MIDlet
+javax.microedition.rms.RecordEnumeration
+javax.microedition.rms.RecordStore
+javax.microedition.rms.RecordStoreException
+javax.microedition.rms.RecordStoreNotFoundException
